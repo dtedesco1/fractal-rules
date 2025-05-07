@@ -1,0 +1,226 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+<!--@fractal-doc-->
+# Fractal Knowledge System Rules v3.3 (.mdc)
+
+```yaml
+#@fractal-doc-rules
+version: 3.3
+limits:
+  max_children_dir: {limit: 5, severity: fail}    # CI fails >10
+  max_lines_file:  {limit: 500, severity: warn}   # CI fails >800
+  max_lines_fn:    {limit: 100, severity: warn}   # CI fails >150
+
+# Base required tags - specific requirements depend on Granularity Level (See Section II)
+base_required_tags: [purpose]
+
+# Define all possible tags and their schema
+tags_schema:
+  purpose: string
+  architecture: string
+  contents: array<string>        # For Dir/Project. Each string item follows '- child - description' format.
+  design_rationale: string
+  project_refs: array<string>
+  doc_refs: array<string>
+  test_refs: array<string>       # Each string item can optionally include '::Item' for specifics.
+  invariants: array<string>
+  security: array<string>
+  args: array<string>
+  return: string
+  troubleshooting: array<string>
+  override: string
+
+comment_markers:
+  python: '"""<!--@fractal-doc-->'
+  typescript: '/** @fractal-doc */'
+
+# Define pattern for cross-references used within documentation text.
+# Format: [type:path/to/target#optional_anchor] where type is 'doc' or 'repo'.
+# Note for JS implementers: When using `new RegExp()`, backslashes in the pattern string must be doubled (e.g., '\\[').
+# Using regex literal notation `/.../` avoids this complexity.
+xref_pattern: "\\[(doc|repo):[a-zA-Z0-9_\\-/\\.]+?(#[a-zA-Z0-9_-]+?)?\\]"
+on_conflict: halt # Halt CI on parsing errors or schema violations
+#@end
+```
+
+> **Intent** - Ensure *every* artifact in a **Python or TypeScript** repo explains itself sufficiently so that both humans **and** AI tooling can understand, maintain, and evolve the codebase confidently. This system aims to combat knowledge decay, surface hidden dependencies, clarify design choices, and prevent common pitfalls by embedding structured context directly with the code.
+
+---
+
+## 0 - Documentation Locations (Python & TS)
+Documentation using the specified markers and `.mdc` tags should be placed as follows:
+
+| Level            | File / Place                                   | Marker                 | Notes                                      |
+|------------------|------------------------------------------------|------------------------|--------------------------------------------|
+| **Project root** | `README.mdc`                                   | `<!--@fractal-doc-->`  | Describes the entire project/repository.   |
+| **Directory**    | `README.mdc`                                   | `<!--@fractal-doc-->`  | Required unless dir contains only one file. |
+| **Python file**  | Top-of-file docstring                           | `"""<!--@fractal-doc-->` | Describes the file's role and content.    |
+| **TS file**      | Top-of-file block comment                       | `/** @fractal-doc */`  | Describes the file's role and content.    |
+| **Function/Class (py & ts)** | Immediately-following docstring / JSDoc | Use file's marker      | Describes the specific function or class. |
+
+*   `.mdc` indicates Markdown enhanced with mandatory Fractal tags.
+*   TypeScript JSDoc blocks (`/** ... */`) should contain the identical XML-style tags.
+
+---
+
+## I - Core Principle: Answering Key Questions
+This system ensures that for every significant artifact (Project level, Directory level, File level, Function/Class level), we answer crucial questions necessary for comprehension and maintenance:
+1.  **What** problem does this solve? (`<purpose>`)
+2.  **How** is it structured or designed? (`<architecture>`)
+3.  **Why** was it built this way (trade-offs)? (`<design_rationale>`)
+4.  **What** are its components or contents? (`<contents>`)
+5.  **How** does it connect to other code? (`<project_refs>`)
+6.  **What** external knowledge applies? (`<doc_refs>`)
+7.  **How** is it verified? (`<test_refs>`)
+8.  **What** conditions must always hold true? (`<invariants>`)
+9.  **How** should it be used (interface)? (`<args>`, `<return>`)
+10. **What** security aspects are relevant? (`<security>`)
+11. **What** can go wrong or needs care? (`<troubleshooting>`)
+
+---
+
+## II - Documentation Granularity Levels
+To balance documentation value with effort, apply tags based on artifact complexity. Tooling should assist in determining and validating the level.
+
+| Level           | Applicability                                  | Required Tags                                            | Recommended Tags                                                                          | Optional Tags        |
+|-----------------|------------------------------------------------|----------------------------------------------------------|-------------------------------------------------------------------------------------------|----------------------|
+| **Level 1 (Minimal)** | Trivial helpers, simple getters/setters, constants files | `<purpose>`                                              | `<args>`, `<return>` (for fn/class)                                                       | All others           |
+| **Level 2 (Standard)**| Most functions, classes, files, directories            | `<purpose>`, (`<args>`, `<return>` for fn/class), `<troubleshooting>` <br/> **+ For Dir/Project:** `<contents>` | `<project_refs>`, `<doc_refs>`, `<test_refs>`, `<architecture>`, `<security>`                | `<design_rationale>`, `<invariants>`, `<override>` |
+| **Level 3 (Complex/Core)** | Critical logic, complex algorithms, core framework, stateful components | Level 2 Required + `<architecture>`                      | `<design_rationale>`, `<invariants>`, `<security>` (strongly recommended where applicable) | `<override>`           |
+
+*   If Level 1 granularity is detected (heuristically or explicitly), validation tooling should **not** require `<troubleshooting>` or other Level 2+ tags.
+*   `<override>` tag can bypass certain checks (like size limits) but requires justification (See Section III). It does *not* exempt from required tags based on Granularity Level.
+
+---
+
+## III - Size & Complexity Guards
+Excessive size often indicates a need for refactoring. Limits encourage modularity. *(Rationale: Observed readability drops significantly past five siblings/major components, leading to the 'Rule-of-5' preference for directory children).*
+
+| Level            | Soft Limit (IDE warn) | Hard Limit (CI fail) | Remedy                                       |
+|------------------|-----------------------|----------------------|----------------------------------------------|
+| Directory        | >5 children           | >10 children         | Add `<override>` justification or split dir. |
+| File (LOC)       | >500                  | >800                 | Add `<override>` justification or refactor.  |
+| Func/Class (LOC) | >100                  | >150                 | Add `<override>` justification or refactor.  |
+
+*   `<override>` (<=120 words) must state: 1. The specific limit breached. 2. The rationale for the exception. 3. A potential future refactoring path (if applicable). It should not contain TODOs.
+
+---
+
+## IV - Tag Glossary & Writing Guide
+**Formatting:** Use a blank line *before & after* each tag block. Tags are lower-case, singular (except `args`), and explicitly closed (`<tag>...</tag>`). Use standard hyphens (`-`) for bullets and hyphens surrounded by spaces (` - `) as separators in list items. Use only standard spaces.
+
+**Cross-References (`xref_pattern`):** Use `[type:path#anchor]` within documentation text to link related items.
+*   `type`: `doc` (documentation files) or `repo` (source code files).
+*   `path`: Relative path from the project root.
+*   `#anchor`: Optional; points to a section/heading (markdown) or symbol/line (code - requires tooling support).
+*   **Example:** "Implements the algorithm described in `[doc:docs/algorithms.mdc#section-3]` using the `[repo:src/utils/graph.py#GraphNode]` class."
+*   *(JS Regex Note: See `xref_pattern` comment in YAML block regarding escaping for `new RegExp()` vs literal `/.../` syntax).*
+
+| Tag                 | Applies To       | Structure                             | Guidance                                                                                                    |
+|---------------------|------------------|---------------------------------------|-------------------------------------------------------------------------------------------------------------|
+| `<purpose>`         | all              | 2-5 sentences                         | **What problem does this solve?** Plain English, focus on intent. Avoid implementation details or code names. |
+| `<architecture>`    | project, dir, file | 3-8 sentences                         | **How is it structured?** Data-flow, pattern, components, layout, high-level algorithm. Link diagrams if used. |
+| `<contents>`        | project, dir     | bullet list `- child - one-liner`     | **What's directly inside?** Each item is a single string containing the child name, ` - `, and description. Aids scans & validation. |
+| `<design_rationale>`| any (rec: L3)    | multiline string                      | **Why this way?** Justify specific design choices vs. alternatives. Discuss trade-offs (perf, memory, maint.). Link benchmarks/docs. |
+| `<project_refs>`    | any (rec: L2+)   | `rel/path - [TYPE] reason` per line   | **Internal code dependencies.** `TYPE`: `data`, `control`, `config`, `utility`, `interface`. Reason = *behavioral* coupling. Don't list imports, describe why you need to interact with that other file. |
+| `<doc_refs>`        | any (rec: L2+)   | `path#anchor - summary` per line      | **External knowledge links.** PRDs, specs, rules, wiki pages. Use `xref` for internal docs (e.g., `[doc:docs/API.mdc] - Main API spec`). |
+| `<test_refs>`       | any (rec: L2+)   | `path/to/test[::Item]` per line       | **How is it verified?** Link specific tests. The `::Item` suffix (e.g., `::TestClass`, `::test_function`) is optional but recommended. |
+| `<invariants>`      | any (rec: L3 stateful) | list (`- `) of statements           | **What must always be true?** Key conditions/properties of state or function pre/post conditions. Essential for testing & safe changes. |
+| `<security>`        | any (optional, rec: L2+) | list (`- `) of bullets              | **Security considerations.** Threat model notes, data sensitivity, auth/authz, input validation, crypto details. Note *when* relevant. |
+| `<args>`            | fn/class         | `name: type - desc` per line          | **Function/constructor inputs.** Detail non-obvious constraints or types (TS generics okay).              |
+| `<return>`          | fn/class         | `type - desc` (`;` sep for multiple)  | **Function/method output.** Describe return value, including edge cases (e.g., `null if not found`).                |
+| `<troubleshooting>` | any (rec: L2+)   | list (`- `) of bullets             | **Known issues & pitfalls.** Reproducible edge cases, perf cliffs, data quirks, concurrency hazards. **No roadmap/TODOs.** |
+| `<override>`        | any              | multiline string                      | See Section III. Justify limit breaches explicitly.                                                         |
+
+---
+
+## V - Recursive Auto-Fix & Tooling (Conceptual)
+The goal is to leverage tooling (including AI) to minimize manual effort and maintain consistency:
+1.  **Upwards Consistency:** Adding/removing a child artifact should prompt suggestions to update the parent's `<contents>` and relevant `<project_refs>` tags.
+2.  **Downwards Impact Analysis:** Significant changes in `<architecture>`, `<design_rationale>`, or `<project_refs>` *could* trigger suggestions for updating documentation in dependent children (requires advanced AI).
+3.  **Commit Integration:** Tooling should help generate documentation tag diffs alongside code changes. Commits ideally include both code and corresponding documentation updates.
+
+---
+
+## VI - Validation
+Automated validation is critical for maintaining the system's integrity and trustworthiness.
+*   **CI Pipeline:** Run checks for presence of required tags (per Granularity Level), adherence to size limits (unless overridden), tag format correctness, and potentially `xref` validity.
+*   **IDE Linters:** Provide real-time feedback (warnings/errors) within the editor.
+*   **TypeScript:** Custom ESLint rules can parse JSDoc blocks for tag validation.
+*   **(Future):** Tooling could attempt to validate `<contents>` against the actual file system and check `<invariants>` using static analysis or test generation.
+
+---
+
+## VII - EXEMPLAR LIBRARY (Good +, Bad -, Edge !) - Updated Characters
+
+### A - Directory `README.mdc` (Standard - Level 2)
+**GOOD +**
+```markdown
+<!--@fractal-doc-->
+<purpose>
+Handles user authentication and session management via JWT.
+</purpose>
+
+<architecture>
+Exposes REST endpoints for login, logout, refresh. Uses repository pattern `[repo:src/repositories/user_repo.py]` to interact with user data. JWT signing uses keys from `[repo:src/config/secrets.py]`. Stateless design.
+</architecture>
+
+<contents>
+- handlers.py - Defines the API route handlers (FastAPI).
+- schemas.py - Pydantic models for request/response bodies.
+- service.py - Core authentication logic (JWT creation/validation).
+- exceptions.py - Custom exceptions for auth errors.
+</contents>
+
+<project_refs>
+../repositories/user_repo.py - [data] Fetches user credentials.
+../config/settings.py - [config] Reads JWT expiration settings.
+../config/secrets.py - [config] Reads JWT signing key.
+../common/security.py - [utility] Password hashing functions.
+</project_refs>
+
+<doc_refs>
+[doc:docs/auth_spec.mdc] - Detailed authentication flow specification.
+RFC7519 - JWT Standard.
+</doc_refs>
+
+<test_refs>
+tests/integration/test_auth_api.py
+tests/unit/auth/test_auth_service.py::TestJWTHandling
+</test_refs>
+
+<security>
+- Uses bcrypt for password hashing via `[repo:src/common/security.py#hash_password]`.
+- Protects against timing attacks during credential verification.
+- JWTs contain user ID and role, signed with HS256. Expiration is short (15m access, 1d refresh).
+- Assumes HTTPS is enforced upstream (gateway/infra).
+</security>
+
+<troubleshooting>
+- Clock skew between server and client can cause premature JWT expiration errors. Ensure NTP sync.
+- Brute-force attacks mitigated by rate limiting (handled upstream).
+</troubleshooting>
+```
+
+*(Other examples follow the same standardized character usage)*
+
+---
+
+## VIII - FAQ
+| Question                                | Answer                                                                                                                                                                                             |
+|-----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Why `.mdc` not `.md`?                   | Signals machine tags for fast indexing/linting. Allows standard Markdown within.                                                                                                                     |
+| External vs. Internal Deps?             | External libs go in `package.json`/`requirements.txt`. `<project_refs>` is strictly for **internal code dependencies** within this project/monorepo to map coupling.                                 |
+| `<troubleshooting>` scope?              | Focus on current, non-obvious issues: reproducible steps, edge cases, performance cliffs, common pitfalls, required mitigations. **Crucially: No roadmap ideas or TODOs.** Use issue trackers for that. |
+| Determining Granularity Level?          | Start with heuristics (size, complexity, file type). Tooling should ideally assist. Can be overridden manually via config if needed. Default to Level 2 if unsure.                                |
+| Purpose of `[TYPE]` in `<project_refs>`? | Clarifies the *nature* of dependency (data, control, config, utility, interface) aiding impact analysis by humans and AI.                                                                          |
+| Purpose of `<contents>`?                | Provides a quick, curated overview of a directory's immediate children for human readers, and enables automated checks for consistency between the README and the file system structure.          |
+| When to use `<security>`?               | It's optional but strongly recommended (even at Level 2) if the code handles **PII, credentials, auth tokens, sensitive configuration, performs cryptographic operations, or processes external/untrusted input.** |
+| Diagrams?                               | Yes, inline via Markdown is fine. Keep them focused and directly relevant to the `<architecture>` or concept being explained.                                                                       |
+
+---
+
+_End of Rules v3.3_
